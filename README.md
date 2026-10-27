@@ -153,13 +153,17 @@ java -cp target/classes com.junaid.recon.core.SampleDataGenerator 50000 sample-d
 k6 run -e RATE=500 -e DURATION=2m loadtest/stream-load.js
 ```
 
-Record your own numbers here once you've run these on your machine:
+### Measured results
+
+The [Benchmark workflow](.github/workflows/benchmark.yml) runs the whole stack (app, PostgreSQL, Kafka) on a GitHub-hosted runner. These numbers come from [this run](https://github.com/junaidahmed9909/payment-reconciliation-platform/actions/runs/40591413558) (4 vCPU, Oct 27 2026). Re-run it any time from Actions → Benchmark → Run workflow.
 
 | Measurement | Result |
 |---|---|
-| Engine throughput (100K txns) | _fill in_ |
-| Batch API, 50K-row files, end to end | _fill in_ |
-| Streaming API sustained rate, p95 latency | _fill in_ |
+| Matching engine, ~195K transactions (100K generated per side) | ~5.0 million transactions/sec (39 ms, best of 5) |
+| Batch API, 50,000 rows per side, upload to stored results | 2.5 s end to end (2.1 s server-side), 50,487 results saved |
+| Real-time API with Kafka, k6 at 500 pairs/sec for 1 minute | 994 req/s sustained, p95 20.8 ms, median 0.9 ms, 0% errors |
+| Real-time matching accuracy in that test | 29,830 of 29,830 pairs reconciled as MATCHED |
+| Match rate on generated data with injected problems | 88.3% (the rest are the planted mismatches, all caught) |
 
 ## Deploying to AWS
 
