@@ -1,5 +1,7 @@
 # Payment Reconciliation Platform
 
+[![CI](https://github.com/junaidahmed9909/payment-reconciliation-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/junaidahmed9909/payment-reconciliation-platform/actions/workflows/ci.yml)
+
 Every bank has the same headache: the money the bank says moved and the money your ledger says moved don't always agree. Fees shave off a few cents, settlements land two days late, a reference gets renamed somewhere along the way, or a payment just never shows up. Someone has to find those gaps, usually in a spreadsheet.
 
 This service does that work automatically, both for nightly files (batch) and for transactions arriving one at a time (real time over Kafka). It pairs every bank transaction with its ledger entry, explains every mismatch in plain English, and keeps the history so you can see trends.
