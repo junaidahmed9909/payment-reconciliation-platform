@@ -1,0 +1,88 @@
+name: Benchmark
+
+# Runs the full stack (app, PostgreSQL, Kafka) on a GitHub-hosted runner and measures:
+#   1. raw matching-engine throughput
+#   2. an end-to-end batch run on 50,000-row files through the REST API
+#   3. a k6 load test against the real-time API with Kafka on
+# Results appear in the run's Summary tab.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/benchmark.yml']
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build
+        run: mvn -B -q package -DskipTests
+
+      - name: Engine benchmark (100,000 transactions)
+        run: java -cp target/classes com.junaid.recon.core.EngineBenchmark 100000 5 | tee engine.txt
+
+      - name: Generate 50,000-row sample files
+        run: java -cp target/classes com.junaid.recon.core.SampleDataGenerator 50000 bench-data 42
+
+      - name: Start the stack
+        run: |
+          docker compose up -d --build postgres kafka app
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8080/actuator/health > /dev/null; then echo "App is up"; exit 0; fi
+            sleep 5
+          done
+          docker compose logs app | tail -100
+          exit 1
+
+      - name: Batch run through the API (50,000 rows per side)
+        run: |
+          curl -sS -o batch.json -w "%{time_total}" \
+            -F bank=@bench-data/bank.csv -F ledger=@bench-data/ledger.csv \
+            http://localhost:8080/api/reconciliations > batch-time.txt
+          jq '{summary, durationMs, parseErrors: (.parseErrors | length)}' batch.json
+
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Load test the real-time API (k6, 500 pairs/sec for 1 minute)
+        run: |
+          k6 run -e RATE=500 -e DURATION=1m --summary-export k6.json loadtest/stream-load.js || echo "k6 thresholds not met (numbers are still recorded)"
+          sleep 10
+          curl -s http://localhost:8080/actuator/prometheus | grep -E '^recon_results_total' | tee stream-results.txt || true
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo "## Benchmark results"
+            echo
+            echo "Runner: GitHub-hosted ubuntu-latest ($(nproc) vCPU), $(date -u +%Y-%m-%d)"
+            echo
+            echo "### Matching engine"
+            echo '```'; cat engine.txt 2>/dev/null; echo '```'
+            if [ -f batch.json ]; then
+              echo "### Batch API, 50,000 rows per side"
+              echo "- Wall-clock time for the upload request: $(cat batch-time.txt) s"
+              echo "- Server-side duration: $(jq .durationMs batch.json) ms"
+              echo "- Results stored: $(jq .summary.total batch.json), match rate $(jq -r .summary.matchRatePercent batch.json)%"
+            fi
+            if [ -f k6.json ]; then
+              echo "### Real-time API load test (k6)"
+              echo "- Requests: $(jq '.metrics.http_reqs.count' k6.json) at $(jq '.metrics.http_reqs.rate | floor' k6.json) req/s"
+              echo "- Latency p95: $(jq '.metrics.http_req_duration["p(95)"] | . * 100 | floor / 100' k6.json) ms, median: $(jq '.metrics.http_req_duration.med | . * 100 | floor / 100' k6.json) ms"
+              echo "- Failed requests: $(jq '.metrics.http_req_failed.value * 100' k6.json)%"
+              echo "- Reconciled results by status:"
+              echo '```'; cat stream-results.txt 2>/dev/null; echo '```'
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
