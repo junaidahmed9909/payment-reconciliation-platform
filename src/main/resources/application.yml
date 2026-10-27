@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: payment-reconciliation-platform
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/recon}
+    username: ${DB_USER:recon}
+    password: ${DB_PASSWORD:recon}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none          # Flyway owns the schema
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+
+recon:
+  amount-tolerance: ${RECON_AMOUNT_TOLERANCE:0.00}
+  date-tolerance-days: ${RECON_DATE_TOLERANCE_DAYS:2}
+  pending-max-age: ${RECON_PENDING_MAX_AGE:PT1H}
+  expiry-check-interval: PT1M
+  kafka:
+    enabled: ${RECON_KAFKA_ENABLED:false}
+    transactions-topic: recon.transactions
+    results-topic: recon.results
+    partitions: 6
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
